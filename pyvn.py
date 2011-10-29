@@ -8,10 +8,11 @@ class PyvnResolver(object):
     def __init__(self, parent):
         self.parent = parent
         self.methods = {}
+        self.resolved = {}
 
     def __repr__(self):
         available = ', '.join(self.get_names()) or 'None'
-        return 'pyvn resolver: %s' % available
+        return 'PyvnResolver for %s: %s' % (self.parent, available)
 
     def __getattr__(self, name):
         return self.resolve(name)
@@ -53,25 +54,35 @@ class PyvnResolver(object):
         is a namespace for it.
 
         """
+
         if obj is None:
             obj = self.parent
+
+        # Remember all results so they are never processed twice.
+        key = (name, obj)
+        if key in self.resolved:
+            return self.resolved[key]
+
+        # Look for a method.
         match = self._method_name_re.match(name)
         if match:
             pyvn_name, pyvn_version = match.groups()
             if pyvn_name in self.methods:
                 best_method = self.get_best_version(pyvn_name, int(pyvn_version))
                 real_method = getattr(obj, best_method)
+                self.resolved[key] = real_method
                 return real_method
-        else:
-            namespace = ':%s' % name
-            if namespace in self.methods:
-                if not isinstance(self.methods[namespace], self.__class__):
-                    # Build a new resolver for this namespace.
-                    resolver = self.__class__(obj)
-                    resolver.methods = self.methods[namespace]
-                    resolver.sort()
-                    self.methods[namespace] = resolver
-                return self.methods[namespace]
+
+        # Look for a namespace.
+        namespaced_methods = self.methods.get(':%s' % name)
+        if namespaced_methods:
+            # Build a new resolver to handle this namespace.
+            resolver = self.__class__(obj)
+            resolver.methods = namespaced_methods
+            resolver.sort()
+            self.resolved[key] = resolver
+            return resolver
+
         raise AttributeError('%r object has no attribute %r' % (obj.__class__.__name__, name))
 
     def sort(self):
@@ -127,8 +138,6 @@ class PyvnClass(object):
     __metaclass__ = PyvnType
 
     def __getattr__(self, name):
-        if name == '_pyvn_resolver':
-            raise AttributeError('%r not found' % name)
         try:
             return self._pyvn_resolver.resolve(name, self)
         except AttributeError:
