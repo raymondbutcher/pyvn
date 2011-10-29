@@ -37,7 +37,7 @@ class PyvnResolver(object):
 
     def register(self, method, real_method_name):
         """Registers a method with this resolver."""
-        for (name, version) in method._pyvn_method:
+        for (name, version) in method._pyvn_data:
             target = self.methods
             while '.' in name:
                 namespace, name = name.split('.', 1)
@@ -60,7 +60,8 @@ class PyvnResolver(object):
             pyvn_name, pyvn_version = match.groups()
             if pyvn_name in self.methods:
                 best_method = self.get_best_version(pyvn_name, int(pyvn_version))
-                return getattr(obj, best_method)
+                real_method = getattr(obj, best_method)
+                return real_method
         else:
             namespace = ':%s' % name
             if namespace in self.methods:
@@ -71,8 +72,7 @@ class PyvnResolver(object):
                     resolver.sort()
                     self.methods[namespace] = resolver
                 return self.methods[namespace]
-        available = ', '.join(self.get_names()) or 'None'
-        raise AttributeError('%r not found. Available: %s' % (name, available))
+        raise AttributeError('%r object has no attribute %r' % (obj.__class__.__name__, name))
 
     def sort(self):
         """Sort the methods so that the newest versions come first."""
@@ -92,7 +92,9 @@ class PyvnType(type):
         resolver = PyvnResolver(new_cls)
         for method_name, method in new_cls.__dict__.iteritems():
 
-            if isinstance(method, (staticmethod, classmethod)):
+            if isinstance(method, property):
+                method = method.fget
+            elif isinstance(method, (staticmethod, classmethod)):
                 if hasattr(method, '__func__'):
                     method = method.__func__
                 else:
@@ -106,7 +108,7 @@ class PyvnType(type):
                         except Exception:
                             continue
 
-            if hasattr(method, '_pyvn_method'):
+            if hasattr(method, '_pyvn_data'):
                 resolver.register(method, method_name)
 
         # Sort the resolver here, rather than each time it resolves a name.
@@ -140,9 +142,9 @@ class PyvnClass(object):
 def pyvn(name, version):
     """Registers a method with pyvn."""
     def decorator(method):
-        if not hasattr(method, '_pyvn_method'):
-            method._pyvn_method = set()
-        method._pyvn_method.add((name, int(version)))
+        if not hasattr(method, '_pyvn_data'):
+            method._pyvn_data = set()
+        method._pyvn_data.add((name, int(version)))
         return method
     return decorator
 

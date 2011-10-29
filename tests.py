@@ -38,6 +38,11 @@ class TestClassMethods(unittest.TestCase):
         def json_version():
             return 2, 'json'
 
+        @property
+        @api('title', 2)
+        def title(self):
+            return 'who knows'
+
     def setUp(self):
         self.story = self.Story(1, 'hello')
 
@@ -62,6 +67,15 @@ class TestClassMethods(unittest.TestCase):
         # Static methods.
         self.assertEqual(self.Story.version_v1(), (1, 'xml'))
         self.assertEqual(self.Story.version_v2(), (2, 'json'))
+
+        # Property methods.
+        try:
+            self.story.title_v1
+            self.fail('This should not be implemented')
+        except NotImplementedError:
+            pass
+        self.assertEqual(self.story.title_v2, 'who knows')
+        self.assertEqual(self.story.title_v3, 'who knows')
 
 
 class TestEverything(unittest.TestCase):
@@ -139,7 +153,7 @@ class TestEverything(unittest.TestCase):
 
 
 class TestMultipleNames(unittest.TestCase):
-    """I don't know what anyone would do this but it works."""
+    """I don't know why anyone would do this but it works."""
 
     class Multipass(api.Class):
 
