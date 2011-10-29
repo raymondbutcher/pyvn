@@ -37,16 +37,15 @@ class PyvnResolver(object):
 
     def register(self, method, real_method_name):
         """Registers a method with this resolver."""
-        name = method._pyvn_name
-        version = method._pyvn_version
-        target = self.methods
-        while '.' in name:
-            namespace, name = name.split('.', 1)
-            namespace = ':%s' % namespace
-            target.setdefault(namespace, {})
-            target = target[namespace]
-        target.setdefault(name, [])
-        target[name].append((version, real_method_name))
+        for (name, version) in method._pyvn_method:
+            target = self.methods
+            while '.' in name:
+                namespace, name = name.split('.', 1)
+                namespace = ':%s' % namespace
+                target.setdefault(namespace, {})
+                target = target[namespace]
+            target.setdefault(name, [])
+            target[name].append((version, real_method_name))
 
     def resolve(self, name, obj=None):
         """
@@ -107,10 +106,10 @@ class PyvnType(type):
                         except Exception:
                             continue
 
-            if hasattr(method, '_pyvn_name'):
+            if hasattr(method, '_pyvn_method'):
                 resolver.register(method, method_name)
 
-        # Sort the methods here rather than each time it resolves a name.
+        # Sort the resolver here, rather than each time it resolves a name.
         resolver.sort()
 
         # Return the new class with the resolver attached.
@@ -141,8 +140,9 @@ class PyvnClass(object):
 def pyvn(name, version):
     """Registers a method with pyvn."""
     def decorator(method):
-        method._pyvn_name = name
-        method._pyvn_version = int(version)
+        if not hasattr(method, '_pyvn_method'):
+            method._pyvn_method = set()
+        method._pyvn_method.add((name, int(version)))
         return method
     return decorator
 
