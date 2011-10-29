@@ -1,115 +1,17 @@
 import re
 
-_pyvn_method_name_re = re.compile('^(.+)_v(\d+)$')
-
-
-def pyvn(*args):
-    """
-    A decorator for adding pyvn support to classes and their methods.
-
-    Setting up a class:
-
-        @pyvn
-        class SomeClass(object):
-
-            @pyvn('get_data', 1):
-            def some_method(self):
-                return 'old data'
-
-            @pyvn('get_data', 2):
-            def another_method(self):
-                return 'current/new data'
-
-    Using the methods:
-
-        >>> some_object = SomeClass()
-        >>> print some_object.get_data_v1()
-        'old data'
-        >>> print some_object.get_data_v2()
-        'current/new data'
-
-    """
-
-    if len(args) == 1:
-        return _pyvn_class(args[0])
-    elif len(args) == 2:
-        return _pyvn_method(*args)
-    else:
-        raise Exception('Incorrect usage of pyvn decorator.')
-
-
-def _update_getattr(cls):
-    """Wrap the __getattr__ method of a class to check the resolver."""
-
-    if hasattr(cls, '__getattr__'):
-        original_getattr = cls.__getattr__
-    else:
-        original_getattr = None
-
-    def pyvn_getattr(self, name):
-        try:
-            return self._pyvn_resolver.resolve(name, self)
-        except AttributeError:
-            if original_getattr:
-                return original_getattr(self, name)
-            else:
-                raise
-
-    cls.__getattr__ = pyvn_getattr
-
-
-def _pyvn_class(cls):
-    """Enables a class to use pyvn methods."""
-
-    # Create a resolver for this class once.
-    if not hasattr(cls, '_pyvn_resolver'):
-        cls._pyvn_resolver = PyvnResolver(cls)
-        _update_getattr(cls)
-
-    # Register all @pyvn decorated methods with the resolver.
-    for method_name, method in cls.__dict__.iteritems():
-
-        #if method_name.startswith('_pyvn'):
-        #    continue
-        #
-        #if isinstance(method, (staticmethod, classmethod)):
-        #    if hasattr(method, '__func__'):
-        #        method = method.__func__
-        #    else:
-        #        try:
-        #            method = method.__get__(1).__func__
-        #        except Exception:
-        #            try:
-        #                method = method.__get__(1).im_func
-        #            except Exception:
-        #                continue
-
-        if hasattr(method, '_pyvn_name'):
-            cls._pyvn_resolver.register(method, method_name)
-
-    # Sort the resolver methods here rather than when resolving each name.
-    cls._pyvn_resolver.sort()
-
-    return cls
-
-
-def _pyvn_method(name, version):
-    """Registers a method with pyvn using a name and version."""
-    def decorator(method):
-        method._pyvn_name = name
-        method._pyvn_version = int(version)
-        return method
-    return decorator
-
 
 class PyvnResolver(object):
+
+    _method_name_re = re.compile('^(.+)_v(\d+)$')
 
     def __init__(self, parent):
         self.parent = parent
         self.methods = {}
 
     def __repr__(self):
-        return 'pyvn: %s' % ', '.join(sorted(self.get_names()))
+        available = ', '.join(self.get_names()) or 'None'
+        return 'pyvn resolver: %s' % available
 
     def __getattr__(self, name):
         return self.resolve(name)
@@ -154,7 +56,7 @@ class PyvnResolver(object):
         """
         if obj is None:
             obj = self.parent
-        match = _pyvn_method_name_re.match(name)
+        match = self._method_name_re.match(name)
         if match:
             pyvn_name, pyvn_version = match.groups()
             if pyvn_name in self.methods:
@@ -170,10 +72,81 @@ class PyvnResolver(object):
                     resolver.sort()
                     self.methods[namespace] = resolver
                 return self.methods[namespace]
-        raise AttributeError('%r not found. Available: %s' % (name, ', '.join(self.names)))
+        available = ', '.join(self.get_names()) or 'None'
+        raise AttributeError('%r not found. Available: %s' % (name, available))
 
     def sort(self):
         """Sort the methods so that the newest versions come first."""
         for methods in self.methods.values():
             if hasattr(methods, 'sort'):
                 methods.sort(reverse=True)
+
+
+class PyvnType(type):
+
+    def __new__(cls, name, bases, dct):
+
+        # Create the new class as normal.
+        new_cls = super(PyvnType, cls).__new__(cls, name, bases, dct)
+
+        # Create a resolver and register all @pyvn decorated methods.
+        resolver = PyvnResolver(new_cls)
+        for method_name, method in new_cls.__dict__.iteritems():
+
+            if isinstance(method, (staticmethod, classmethod)):
+                if hasattr(method, '__func__'):
+                    method = method.__func__
+                else:
+                    # Try to work with older versions of python.
+                    # Who knows if this will work!
+                    try:
+                        method = method.__get__(1).__func__
+                    except Exception:
+                        try:
+                            method = method.__get__(1).im_func
+                        except Exception:
+                            continue
+
+            if hasattr(method, '_pyvn_name'):
+                resolver.register(method, method_name)
+
+        # Sort the methods here rather than each time it resolves a name.
+        resolver.sort()
+
+        # Return the new class with the resolver attached.
+        new_cls._pyvn_resolver = resolver
+        return new_cls
+
+    def __getattr__(cls, name):
+        return cls._pyvn_resolver.resolve(name)
+
+
+class PyvnClass(object):
+
+    __metaclass__ = PyvnType
+
+    def __getattr__(self, name):
+        if name == '_pyvn_resolver':
+            raise AttributeError('%r not found' % name)
+        try:
+            return self._pyvn_resolver.resolve(name, self)
+        except AttributeError:
+            other = super(PyvnClass, self)
+            if hasattr(other, '__getattr__'):
+                return other.__getattr__(name)
+            else:
+                raise
+
+
+def pyvn(name, version):
+    """Registers a method with pyvn."""
+    def decorator(method):
+        method._pyvn_name = name
+        method._pyvn_version = int(version)
+        return method
+    return decorator
+
+
+# Make the PyvnClass easy to acess via the decorator,
+# making pyvn only require a single import.
+pyvn.Class = PyvnClass
