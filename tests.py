@@ -15,10 +15,22 @@ class TestClassMethods(unittest.TestCase):
             self.id = id
             self.content = content
 
+        # The "list" api method starts at list_v2.
+        # If you try list_v1 then it will raise a NotImplementedError.
+        # If you try list_v2, list_v3 or higher, it will use list_v2.
+        # It always try to get the exact requested version, but can fall back
+        # to the next highest version number. The point of this is that you
+        # only need to define new versions when the methods are changed and
+        # become incompatible.
+
         @classmethod
         @api('list', 2)
         def list_json(cls):
             return '{example: null}'
+
+        # The "get" api method has get_v1 and get_v2.
+        # They output results in different formats,
+        # making it a good idea to change the api version.
 
         @api('get', 1)
         def get_xml(self):
@@ -27,6 +39,8 @@ class TestClassMethods(unittest.TestCase):
         @api('get', 2)
         def get_json(self):
             return '{id=%d, content: "%s"}' % (self.id, self.content)
+
+        # More methods for testing purposes...
 
         @staticmethod
         @api('version', 1)
